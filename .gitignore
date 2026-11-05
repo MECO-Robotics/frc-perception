@@ -1,0 +1,30 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv*/
+.yolo-venv/
+.gst/
+.vpi-*/
+
+# Local logs, recordings, and replay outputs
+*.log
+media/*
+!media/calibration/
+media/calibration/*
+!media/calibration/stereo_calibration_live_order_candidate.yml
+runs/
+evaluation/*
+!evaluation/fuel-measured-range-template.json
+
+# Local model exports and TensorRT caches/engines
+models/*
+!models/rebuilt_fuel_yolo26n.pt
+/*.pt
+*.engine
+*.onnx
+*.cache
+*.cache.lock
+
+# Machine-specific state and backups
+.backups/
+networktables.json

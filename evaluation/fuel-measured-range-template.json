@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "video": "media/REPLACE_WITH_LIGHTS_ON_CAPTURE.mp4",
+  "camera": {
+    "resolution_per_view_px": [1600, 1200],
+    "capture_fps": 60,
+    "stereo_calibration": "media/calibration/stereo_calibration_live_order_candidate.yml",
+    "baseline_m": 0.0635,
+    "coordinate_frame": "camera optical center; +X right, +Y down, +Z forward"
+  },
+  "measurement_method": "Measure from the stereo camera optical-center plane to each FUEL sphere center. Record the tape-measure uncertainty. Predicted Euclidean range is sqrt(X^2+Y^2+Z^2); predicted forward depth is Z.",
+  "scene_notes": "Record lighting, ball arrangement, occlusion, and whether the camera or targets move.",
+  "observations": [
+    {
+      "time_s": 0.0,
+      "objects": [
+        {
+          "object_id": "fuel_1",
+          "camera_to_ball_center_m": null,
+          "measurement_uncertainty_m": null,
+          "cluster_id": "cluster_1"
+        },
+        {
+          "object_id": "fuel_2",
+          "camera_to_ball_center_m": null,
+          "measurement_uncertainty_m": null,
+          "cluster_id": "cluster_1"
+        }
+      ]
+    }
+  ]
+}

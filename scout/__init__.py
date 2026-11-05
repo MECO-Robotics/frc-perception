@@ -1,0 +1,1 @@
+"""SCOUT edge vision application."""

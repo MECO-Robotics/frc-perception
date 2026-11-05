@@ -1,0 +1,4 @@
+<!doctype html><meta charset="utf-8"><title>SCOUT Edge Vision</title>
+<style>body{margin:0;background:#10151b;color:#dce7ef;font:14px system-ui}header{padding:14px 20px;display:flex;justify-content:space-between}main{display:grid;place-items:center}img{max-width:100vw;max-height:calc(100vh - 80px);object-fit:contain}.pill{color:#8ef0a7}</style>
+<header><strong>SCOUT / JETSON EDGE VISION</strong><span id="stats" class="pill">connecting…</span></header><main><img id="view"></main>
+<script>const img=document.querySelector('#view'),s=document.querySelector('#stats');img.src='/stream';setInterval(()=>fetch('/api/stats').then(r=>r.json()).then(x=>s.textContent=`${x.detector} · ${x.capture_fps.toFixed(1)} FPS · ${x.latency_ms} ms`).catch(()=>s.textContent='stream reconnecting…'),1000)</script>

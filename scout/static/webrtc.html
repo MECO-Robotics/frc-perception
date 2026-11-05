@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SCOUT Edge Vision</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10151b;color:#dce7ef;font:14px system-ui}header{padding:14px 20px;display:flex;align-items:center;gap:20px;justify-content:space-between;flex-wrap:wrap}#stats{color:#8ef0a7}main{display:grid;place-items:center}#stage{position:relative;max-width:100vw;line-height:0}video{display:block;max-width:100vw;max-height:calc(100vh - 130px);width:auto;height:auto}canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}footer{padding:12px 20px;color:#9aaabd;display:flex;gap:20px;align-items:center;flex-wrap:wrap}button{background:#233444;border:1px solid #496277;color:#dce7ef;border-radius:5px;padding:6px 12px;cursor:pointer}#error{color:#ffb99f}#confidence-control,#source-control{display:flex;align-items:center;gap:9px}#confidence{width:130px;accent-color:#7dff72}#source-select{max-width:min(360px,70vw);background:#17212b;color:#dce7ef;border:1px solid #496277;border-radius:5px;padding:6px}#camera-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:100%}#camera-controls label{display:flex;align-items:center;gap:6px}#camera-controls input[type=range]{width:90px;accent-color:#7dff72}#camera-controls select{max-width:140px;background:#17212b;color:#dce7ef;border:1px solid #496277;border-radius:5px;padding:5px}#camera-reset{padding:5px 9px}#camera-note{font-size:12px}
+</style>
+<style>#engine-control{display:flex;align-items:center;gap:8px}#engine-select{max-width:min(240px,55vw);background:#17212b;color:#dce7ef;border:1px solid #496277;border-radius:5px;padding:6px}</style>
+</head>
+<body>
+<header><strong>SCOUT / JETSON EDGE VISION</strong><span id="stats">Connecting…</span></header>
+<main><div id="stage"><video id="view" autoplay muted playsinline></video><canvas id="overlay"></canvas></div></main>
+<footer><span id="connection">Connecting video</span><span id="stereo-note" hidden style="color:#ffd166">Stereo fit updated · validate range against a known distance</span><span id="error" role="status"></span><a href="/calibration" target="_blank" style="color:#8ef0a7">Checkerboard calibration</a><label id="source-control" for="source-select">Video <select id="source-select" aria-label="Select sample video" disabled></select></label><label id="engine-control" for="engine-select">YOLO engine <select id="engine-select" aria-label="Select YOLO engine" disabled></select><button id="engine-apply" type="button" disabled>Apply</button></label><label id="confidence-control" for="confidence">Base confidence ≥ <output id="confidence-value">0.60</output><input id="confidence" type="range" min="0.10" max="0.95" step="0.05" value="0.60" aria-label="Base YOLO detection confidence"></label><span id="camera-controls"><span id="camera-note">Checking camera controls…</span></span><button id="pause" type="button">Pause</button><button id="camera-reconnect" type="button" disabled>Reconnect Camera</button><button id="reconnect">Reconnect Video</button><button id="fullscreen">Fullscreen</button></footer>
+<script>
+'use strict';
+const video=document.querySelector('#view'), canvas=document.querySelector('#overlay'), ctx=canvas.getContext('2d');
+const stats=document.querySelector('#stats'), status=document.querySelector('#connection'), error=document.querySelector('#error'), pauseButton=document.querySelector('#pause'), confidenceSlider=document.querySelector('#confidence'), confidenceValue=document.querySelector('#confidence-value'), sourceSelect=document.querySelector('#source-select'), stereoNote=document.querySelector('#stereo-note'), engineSelect=document.querySelector('#engine-select'), engineApply=document.querySelector('#engine-apply');
+const cameraControls=document.querySelector('#camera-controls'), cameraNote=document.querySelector('#camera-note'), cameraReconnectButton=document.querySelector('#camera-reconnect');
+let socket=null, pc=null, generation=0, retryTimer=null, leaving=false, detections=[], latestStats={}, boardPreview=null, boardPreviewAt=0;
+let browserFPS=null, rateStart=performance.now(), frameCount=0, decodedFrames=0, lastVideoTime=-1, lastFrameMetadata={}, confidenceChanging=false, confidenceTimer=null, sourceChanging=false, cameraReconnecting=false;
+let engineChanging=false;
+window.scoutMetrics={browserFPS:null, frames:0, connection:'connecting', overlays:0};
+function format(value){return Number.isFinite(value)?value.toFixed(1):'—';}
+async function loadCameraControls(){
+ cameraControls.replaceChildren();cameraControls.append(cameraNote);cameraNote.textContent='Checking camera controls…';
+ try{
+  const response=await fetch('/api/camera-controls');const result=await response.json();
+  if(!result.available){cameraNote.textContent=result.reason||'Camera controls unavailable';return;}
+  for(const [name,control] of Object.entries(result.controls)){
+   const title=name==='exposure_absolute'?'Exposure (ms)':name.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),label=document.createElement('label');
+   let input;
+   if(control.type==='menu'){
+    input=document.createElement('select');
+    for(const [value,text] of Object.entries(control.menu)){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option);}
+    input.value=String(control.value);
+   }else if(control.type==='bool'){
+    input=document.createElement('input');input.type='checkbox';input.checked=Boolean(control.value);
+   }else{
+    input=document.createElement('input');input.type='range';input.min=control.min;input.max=control.max;input.step=control.step;input.value=control.value;
+   }
+   input.setAttribute('aria-label',title);if(name==='exposure_absolute')input.title=`Exposure time, limited to ${control.max/10} ms to preserve capture FPS`;input.disabled=Boolean(control.disabled);
+   label.append(document.createTextNode(title+' '),input);
+   const output=document.createElement('output');
+   const updateValue=()=>{output.value=control.type==='bool'?(input.checked?'On':'Off'):name==='exposure_absolute'?(Number(input.value)/10).toFixed(1):input.value;};
+   updateValue();label.append(output);input.oninput=updateValue;
+   input.onchange=async()=>{
+    const value=control.type==='bool'?Number(input.checked):Number(input.value);
+    try{
+     const r=await fetch('/api/camera-controls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({control:name,value})});
+     const data=await r.json();if(!r.ok)throw new Error(data.detail||'Unable to update camera');
+     await loadCameraControls();
+    }catch(err){error.textContent=err.message;await loadCameraControls();}
+   };
+   cameraControls.append(label);
+  }
+  const resetButton=document.createElement('button');resetButton.id='camera-reset';resetButton.type='button';resetButton.textContent='Reset camera defaults';
+  resetButton.onclick=async()=>{
+   resetButton.disabled=true;error.textContent='';
+   try{
+    const r=await fetch('/api/camera-controls/reset',{method:'POST'});const data=await r.json();
+    if(!r.ok)throw new Error(data.detail||'Unable to reset camera controls');
+    await loadCameraControls();
+   }catch(err){error.textContent=err.message;}
+   finally{resetButton.disabled=false;}
+  };
+  cameraControls.append(resetButton);
+ }catch(err){console.error('Unable to render camera controls',err);cameraNote.textContent='Camera controls error: '+err.message;error.textContent='';}
+}
+function showStats(){
+ if(Number.isFinite(latestStats.confidence)&&!confidenceChanging){confidenceSlider.value=latestStats.confidence;confidenceValue.value=Number(latestStats.confidence).toFixed(2);}
+ pauseButton.textContent=latestStats.paused?'Resume':'Pause';
+ pauseButton.setAttribute('aria-pressed',String(Boolean(latestStats.paused)));
+ cameraReconnectButton.disabled=!latestStats.camera_device||Boolean(latestStats.paused)||cameraReconnecting;
+ if(!sourceChanging&&latestStats.source_id)sourceSelect.value=latestStats.source_id;
+ stereoNote.hidden=!latestStats.stereo_approximate;
+ sourceSelect.disabled=sourceChanging||Boolean(latestStats.paused);
+ if(latestStats.paused)status.textContent='Paused · video and inference stopped';
+ else if(status.textContent.startsWith('Paused'))status.textContent=`Video: ICE ${pc?.iceConnectionState||'new'} · ${pc?.connectionState||'new'}`;
+stats.textContent=`${latestStats.paused?'PAUSED · ':''}${latestStats.detector||'YOLO'} · capture ${format(latestStats.capture_fps)} · inference ${format(latestStats.inference_fps)} · encoded ${format(latestStats.encoded_fps)} · browser ${format(browserFPS)} FPS`;
+ stats.textContent=`${latestStats.paused?'PAUSED · ':''}${latestStats.detector||'YOLO'} · capture ${format(latestStats.capture_fps)} · inference ${format(latestStats.inference_fps)} · flow ${format(latestStats.flow_fps)} · encoded ${format(latestStats.encoded_fps)} · browser ${format(browserFPS)} FPS`;
+ stats.title=`Engine input ${latestStats.engine_input_resolution||'—'} · stereo ${latestStats.stereo_calibrated?'calibrated':'uncalibrated'} · base confidence ${Number(latestStats.confidence||0).toFixed(2)} · class thresholds ${JSON.stringify(latestStats.class_confidences||{})} · frame copy ${latestStats.frame_copy_ms} ms · preprocess ${latestStats.preprocess_ms} ms · H2D ${latestStats.h2d_ms} ms · TensorRT ${latestStats.tensorrt_ms} ms · D2H ${latestStats.d2h_ms} ms · postprocess ${latestStats.postprocess_ms} ms · detector total ${latestStats.detector_total_ms} ms`;
+}
+function draw(metadata={}){
+ if(!video.videoWidth)return;
+ if(canvas.width!==video.videoWidth||canvas.height!==video.videoHeight){canvas.width=video.videoWidth;canvas.height=video.videoHeight;}
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ const now=performance.now(); let selected=null;
+ for(let i=detections.length-1;i>=0;i--){
+  const item=detections[i];
+  if(now-item.arrived>1000)continue;
+  if(Number.isFinite(metadata.rtpTimestamp)){
+   const ticks=(metadata.rtpTimestamp-item.rtp_timestamp)|0;
+   if(ticks>=0&&ticks<=22500){selected=item;break;}
+  }else if(now-item.arrived<250){selected=item;break;}
+ }
+ ctx.lineWidth=Math.max(2,canvas.width/800);ctx.font=`${Math.max(16,canvas.width/80)}px system-ui`;
+ let visibleBoxes=0;
+for(const box of selected?.boxes||[]){
+ for(const box of selected?.tracks||selected?.boxes||[]){
+ const threshold=latestStats.class_confidences?.[box.class_id]??Number(confidenceSlider.value);
+  if(box.track_state==='measured'&&box.confidence<threshold)continue;
+  if(box.track_state!=='measured'&&box.confidence<0.02)continue;
+ const x=box.x*canvas.width,y=box.y*canvas.height,w=box.w*canvas.width,h=box.h*canvas.height;
+  ctx.strokeStyle=box.track_state==='measured'?'#7dff72':box.track_state==='flow'?'#43ddff':'#ffd166';ctx.strokeRect(x,y,w,h);
+ const depth=Number.isFinite(box.distance_m)?` · ${latestStats.stereo_approximate?'≈':''}${box.distance_m.toFixed(2)} m`:'';
+  const track=box.track_state&&box.track_state!=='measured'?` · ${box.track_state} ${Math.round(box.track_age_ms)}ms`:'';
+  const label=`${box.label} #${box.track_id} ${box.confidence.toFixed(2)}${track}${depth}`;
+  const labelY=Math.max(24,y-7),tw=ctx.measureText(label).width;
+  ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(x-2,labelY-23,tw+8,29);
+  ctx.fillStyle='#7dff72';ctx.fillText(label,x+2,labelY);
+  visibleBoxes++;
+ }
+ if(boardPreview?.active&&performance.now()-boardPreviewAt<1000){
+  const polygon=boardPreview.polygon||[];
+  if(polygon.length>=3){
+   ctx.beginPath();ctx.moveTo(polygon[0][0]*canvas.width,polygon[0][1]*canvas.height);
+   for(const point of polygon.slice(1))ctx.lineTo(point[0]*canvas.width,point[1]*canvas.height);
+   ctx.closePath();ctx.strokeStyle='#35e6ff';ctx.lineWidth=Math.max(3,canvas.width/500);ctx.stroke();
+  }
+  ctx.fillStyle='#ffdd4a';
+  for(const point of boardPreview.corners||[]){ctx.beginPath();ctx.arc(point[0]*canvas.width,point[1]*canvas.height,Math.max(3,canvas.width/240),0,Math.PI*2);ctx.fill();}
+  const diagnostic=`ChArUco markers L/R ${boardPreview.left_markers}/${boardPreview.right_markers} · corners ${boardPreview.left_corners}/${boardPreview.right_corners}`;
+  ctx.font=`${Math.max(14,canvas.width/70)}px system-ui`;const tw=ctx.measureText(diagnostic).width;
+  ctx.fillStyle='rgba(0,0,0,.78)';ctx.fillRect(8,8,tw+20,34);ctx.fillStyle='#35e6ff';ctx.fillText(diagnostic,18,32);
+ }
+ window.scoutMetrics.overlays=visibleBoxes;
+}
+function presented(now,metadata){
+ lastFrameMetadata=metadata;
+ frameCount++;decodedFrames++;
+ if(now-rateStart>=1000){browserFPS=frameCount*1000/(now-rateStart);frameCount=0;rateStart=now;showStats();}
+ window.scoutMetrics={...window.scoutMetrics,browserFPS,frames:decodedFrames,rtpTimestamp:metadata.rtpTimestamp};
+ draw(metadata);
+ video.requestVideoFrameCallback(presented);
+}
+if('requestVideoFrameCallback' in video){video.requestVideoFrameCallback(presented);}
+else{const tick=()=>{if(video.currentTime!==lastVideoTime){lastVideoTime=video.currentTime;draw();}requestAnimationFrame(tick);};tick();}
+function reconnect(){
+ if(leaving||retryTimer)return;
+ retryTimer=setTimeout(()=>{retryTimer=null;connect();},1000);
+}
+async function loadEngines(){
+ try{
+  const response=await fetch('/api/engines');const result=await response.json();
+  if(!response.ok)throw new Error(result.detail||'Unable to load YOLO engines');
+  engineSelect.replaceChildren(...result.engines.map(engine=>{
+   const option=document.createElement('option');option.value=engine.id;option.textContent=engine.label;return option;
+  }));
+  engineSelect.value=result.active_engine;engineSelect.disabled=result.engines.length<2;
+  engineApply.disabled=result.engines.length<2;
+ }catch(err){error.textContent=err.message;}
+}
+async function loadSources(){
+ try{
+  const response=await fetch('/api/sources');
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.detail||'Unable to load sample videos');
+  sourceSelect.replaceChildren(...result.sources.map(source=>{
+   const option=document.createElement('option');option.value=source.id;option.textContent=source.name;return option;
+  }));
+  if(result.active_source)sourceSelect.value=result.active_source;
+  sourceSelect.disabled=false;
+ }catch(err){error.textContent=err.message;}
+}
+function connect(){
+ const id=++generation;
+ if(socket)socket.close();if(pc)pc.close();
+ detections=[];error.textContent='';status.textContent='Connecting video';
+ window.scoutMetrics.connection='connecting';
+ const peer=new RTCPeerConnection({iceServers:[]});pc=peer;
+ const ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);socket=ws;
+ const pending=[];let chain=Promise.resolve();
+ const rtcState=()=>{
+  window.scoutMetrics={...window.scoutMetrics,connection:peer.connectionState,ice:peer.iceConnectionState,gathering:peer.iceGatheringState};
+  status.textContent=latestStats.paused?'Paused · video and inference stopped':`Video: ICE ${peer.iceConnectionState} · ${peer.connectionState}`;
+ };
+ peer.oniceconnectionstatechange=rtcState;
+ peer.onicegatheringstatechange=rtcState;
+ peer.ontrack=e=>{if(id!==generation)return;video.srcObject=e.streams[0]||new MediaStream([e.track]);video.play().catch(()=>{error.textContent='Press Reconnect to start playback';});};
+ peer.onicecandidate=e=>{if(id===generation&&e.candidate&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:'ice',candidate:e.candidate.candidate,sdpMLineIndex:e.candidate.sdpMLineIndex}));};
+ peer.onconnectionstatechange=()=>{
+  if(id!==generation)return;
+  rtcState();
+  if(['failed','disconnected'].includes(peer.connectionState))reconnect();
+ };
+ rtcState();
+ ws.onmessage=e=>{chain=chain.then(async()=>{
+  if(id!==generation)return;
+  const message=JSON.parse(e.data);
+  if(message.type==='offer'){
+   await peer.setRemoteDescription({type:'offer',sdp:message.sdp});
+   for(const candidate of pending.splice(0))await peer.addIceCandidate(candidate);
+   const answer=await peer.createAnswer();await peer.setLocalDescription(answer);
+   ws.send(JSON.stringify({type:'answer',sdp:answer.sdp}));
+  }else if(message.type==='ice'){
+   const candidate={candidate:message.candidate,sdpMLineIndex:message.sdpMLineIndex};
+   if(peer.remoteDescription)await peer.addIceCandidate(candidate);else pending.push(candidate);
+  }else if(message.type==='detections'){
+   detections.push({...message,arrived:performance.now()});if(detections.length>120)detections.shift();
+  }else if(message.type==='charuco'){
+   boardPreview=message;boardPreviewAt=performance.now();
+  }else if(message.type==='stats'){
+   latestStats=message;window.scoutMetrics.server=message;showStats();
+   if(message.error)error.textContent=message.error;
+  }else if(message.type==='error'){throw new Error(message.message);}
+ }).catch(err=>{if(id===generation){error.textContent=err.message;reconnect();}});};
+ ws.onclose=()=>{if(id===generation){status.textContent='Video reconnecting…';reconnect();}};
+ ws.onerror=()=>{if(id===generation)error.textContent='Unable to connect to Scout';};
+}
+document.querySelector('#reconnect').onclick=()=>{clearTimeout(retryTimer);retryTimer=null;connect();};
+cameraReconnectButton.onclick=async()=>{
+ cameraReconnecting=true;cameraReconnectButton.disabled=true;error.textContent='';status.textContent='Reconnecting camera…';
+ try{
+  const response=await fetch('/api/camera/reconnect',{method:'POST'});const result=await response.json();
+  if(!response.ok)throw new Error(result.detail||'Unable to reconnect camera');
+  latestStats=result;showStats();status.textContent='Camera reconnected · video stream continuing';
+ }catch(err){error.textContent=err.message;status.textContent='Camera reconnect failed';}
+ finally{cameraReconnecting=false;cameraReconnectButton.disabled=!latestStats.camera_device||Boolean(latestStats.paused);}
+};
+sourceSelect.onchange=async()=>{
+ const selected=sourceSelect.value;
+ if(!selected)return;
+ sourceChanging=true;sourceSelect.disabled=true;pauseButton.disabled=true;detections=[];error.textContent='';status.textContent='Switching sample video…';
+ try{
+  const response=await fetch('/api/source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:selected})});
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.detail||'Unable to switch sample video');
+  latestStats=result;showStats();status.textContent=`Video changed · ICE ${pc?.iceConnectionState||'new'} · ${pc?.connectionState||'new'}`;
+ }catch(err){error.textContent=err.message;if(latestStats.source_id)sourceSelect.value=latestStats.source_id;}
+ finally{sourceChanging=false;pauseButton.disabled=false;sourceSelect.disabled=Boolean(latestStats.paused);loadCameraControls();}
+};
+engineApply.onclick=async()=>{
+ engineChanging=true;engineSelect.disabled=true;engineApply.disabled=true;pauseButton.disabled=true;
+ detections=[];error.textContent='';status.textContent='Loading YOLO engine…';
+ try{
+  const response=await fetch('/api/engine',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({engine:engineSelect.value})});
+  const result=await response.json();if(!response.ok)throw new Error(result.detail||'Unable to switch YOLO engine');
+  latestStats=result;showStats();status.textContent=`Engine changed · ${result.detector} (${result.engine_input_resolution})`;
+ }catch(err){error.textContent=err.message;await loadEngines();}
+ finally{engineChanging=false;engineSelect.disabled=false;engineApply.disabled=false;pauseButton.disabled=false;}
+};
+confidenceSlider.oninput=()=>{
+ confidenceChanging=true;confidenceValue.value=Number(confidenceSlider.value).toFixed(2);draw(lastFrameMetadata);
+ clearTimeout(confidenceTimer);
+ confidenceTimer=setTimeout(async()=>{
+  try{
+   const response=await fetch('/api/confidence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confidence:Number(confidenceSlider.value)})});
+   const result=await response.json();
+   if(!response.ok)throw new Error(result.detail||'Unable to update confidence');
+   latestStats=result;confidenceChanging=false;showStats();
+  }catch(err){confidenceChanging=false;error.textContent=err.message;}
+ },250);
+};
+pauseButton.onclick=async()=>{
+ pauseButton.disabled=true;error.textContent='';
+ try{
+  const response=await fetch('/api/pause',{method:'POST'});
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.detail||'Unable to change pipeline state');
+  latestStats=result;showStats();
+  status.textContent=result.paused?'Paused · video and inference stopped':`Video: ICE ${pc?.iceConnectionState||'new'} · ${pc?.connectionState||'new'}`;
+ }catch(err){error.textContent=err.message;}
+ finally{pauseButton.disabled=false;}
+};
+document.querySelector('#fullscreen').onclick=()=>document.querySelector('#stage').requestFullscreen();
+loadSources();
+loadCameraControls();
+loadEngines();
+window.addEventListener('beforeunload',()=>{leaving=true;if(socket)socket.close();if(pc)pc.close();});
+connect();
+</script>
+</body></html>

@@ -1,0 +1,16 @@
+[Unit]
+Description=FRC 2026 Gamepiece Perception (Scout pipeline + NetworkTables)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/scout-edge
+EnvironmentFile=%h/.config/frc-perception.env
+ExecStart=%h/scout-edge/scripts/start-scout.sh
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

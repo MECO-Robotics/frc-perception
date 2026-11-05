@@ -1,0 +1,292 @@
+{
+  "method": "Production perception pipeline duplicated across two concurrent pipelines reading the same live USB stereo camera. Includes camera capture, hardware decode, resize/split/transfer, TensorRT, optical flow/Kalman, stereo range, clustering, NT4 writes, and capture-to-NT publish latency.",
+  "camera_count": 2,
+  "stream_enabled": false,
+  "nt_stale_ms": 250,
+  "flow_grace_ms": 120,
+  "engine": "models/rebuilt_fuel_yolo26n_1280x960_fp16.engine",
+  "stereo_mode": "dense",
+  "stereo_backend": "opencv",
+  "stereo_disparities": 32,
+  "cv2_threads": 8,
+  "inference_width": 2560,
+  "flow_width": 1280,
+  "stereo_pair_wait_ms": 2,
+  "right_frame_cache_size": 4,
+  "stereo_vertical_pad": 24,
+  "stereo_size_gate_relative_error": 0.55,
+  "inference_cap_hz": null,
+  "real_usb_camera_reference_hz": 60,
+  "warmup_seconds": 3.0,
+  "measurement_seconds": 10.006,
+  "aggregate_rates_hz": {
+    "capture": 104.63,
+    "inference": 27.98,
+    "inference_skipped": 0.0,
+    "flow": 35.48,
+    "encoded": 0.0
+  },
+  "aggregate_processed_frames": {
+    "capture": 1047,
+    "inference": 280,
+    "inference_skipped": 0,
+    "flow": 355,
+    "encoded": 0
+  },
+  "flow_rate_fraction_of_60hz_reference": 0.296,
+  "per_camera": [
+    {
+      "camera": 1,
+      "source": "mjpeg-tcp://127.0.0.1:5010",
+      "rates_hz": {
+        "capture": 52.17,
+        "inference": 13.89,
+        "inference_skipped": 0.0,
+        "flow": 17.89,
+        "encoded": 0.0
+      },
+      "processed_frames": {
+        "capture": 522,
+        "inference": 139,
+        "inference_skipped": 0,
+        "flow": 179,
+        "encoded": 0
+      },
+      "local_nt4_write_frames": 178,
+      "stereo_pair_stats": {
+        "frames_with_stereo_depth": 179,
+        "missing_right_eye_pairs": 0
+      },
+      "nt4_3d_payloads": {
+        "frames_with_at_least_one_piece": 179,
+        "frames_with_at_least_two_pieces": 6,
+        "frames_per_second_with_at_least_two_pieces": 0.6,
+        "piece_count_histogram": {
+          "1": 173,
+          "2": 6
+        },
+        "cluster_count_histogram": {
+          "1": 172,
+          "2": 6
+        },
+        "cluster_count_median": 1.0,
+        "cluster_count_min": 1,
+        "cluster_count_max": 2,
+        "published_range_age_ms": {
+          "p50": 40.66,
+          "p95": 60.39,
+          "max": 73.48
+        }
+      },
+      "capture_to_nt_publish_latency_ms": {
+        "p50": 108.71,
+        "p95": 144.38,
+        "max": 172.89,
+        "samples": 178
+      },
+      "fresh_stereo_measurements": {
+        "frames_with_two_valid_ranges": 7,
+        "frames_per_second_with_two_valid_ranges": 0.7,
+        "valid_range_count_histogram": {
+          "1": 172,
+          "2": 7
+        },
+        "two_range_update_gap_ms": {
+          "p95": 86.43,
+          "max": 89.82
+        },
+        "range_by_track_m": {
+          "2": {
+            "samples": 179,
+            "median": 1.7811,
+            "mad": 0.0
+          },
+          "4": {
+            "samples": 7,
+            "median": 1.3978,
+            "mad": 0.0457
+          }
+        }
+      },
+      "sampled_latest_stage_latency_ms_p50_p95": {
+        "inference_latency_ms": {
+          "p50": 67.94,
+          "p95": 102.59
+        },
+        "detector_total_ms": {
+          "p50": 50.8,
+          "p95": 73.0
+        },
+        "stereo_map_ms": {
+          "p50": 31.35,
+          "p95": 46.93
+        },
+        "stereo_rectify_ms": {
+          "p50": 14.36,
+          "p95": 28.02
+        },
+        "stereo_match_ms": {
+          "p50": 7.79,
+          "p95": 15.31
+        },
+        "stereo_extract_ms": {
+          "p50": 6.95,
+          "p95": 15.61
+        },
+        "stereo_flow_box_build_ms": {
+          "p50": 0.05,
+          "p95": 0.1
+        },
+        "stereo_flow_tracker_ms": {
+          "p50": 25.69,
+          "p95": 47.67
+        }
+      },
+      "tracks_and_depth": {
+        "tracked_instances_last_sample": 3,
+        "fresh_stereo_ranges_last_sample": 1
+      },
+      "pipeline": {
+        "detector": "rebuilt_fuel_yolo26n_1280x960-tensorrt",
+        "precision": "FP16",
+        "input_resolution": "3200x1200",
+        "inference_resolution": "1280x960",
+        "tracking_resolution": "640x480",
+        "stereo_backend": "opencv",
+        "stereo_calibrated": true,
+        "stereo_approximate": true,
+        "stereo_match_scale": 0.25,
+        "stereo_num_disparities": 32,
+        "nt_enabled": true,
+        "nt_status": "degraded",
+        "error": null
+      }
+    },
+    {
+      "camera": 2,
+      "source": "mjpeg-tcp://127.0.0.1:5011",
+      "rates_hz": {
+        "capture": 52.47,
+        "inference": 14.09,
+        "inference_skipped": 0.0,
+        "flow": 17.59,
+        "encoded": 0.0
+      },
+      "processed_frames": {
+        "capture": 525,
+        "inference": 141,
+        "inference_skipped": 0,
+        "flow": 176,
+        "encoded": 0
+      },
+      "local_nt4_write_frames": 176,
+      "stereo_pair_stats": {
+        "frames_with_stereo_depth": 176,
+        "missing_right_eye_pairs": 0
+      },
+      "nt4_3d_payloads": {
+        "frames_with_at_least_one_piece": 176,
+        "frames_with_at_least_two_pieces": 0,
+        "frames_per_second_with_at_least_two_pieces": 0.0,
+        "piece_count_histogram": {
+          "1": 176
+        },
+        "cluster_count_histogram": {
+          "1": 176
+        },
+        "cluster_count_median": 1.0,
+        "cluster_count_min": 1,
+        "cluster_count_max": 1,
+        "published_range_age_ms": {
+          "p50": 41.03,
+          "p95": 58.39,
+          "max": 69.42
+        }
+      },
+      "capture_to_nt_publish_latency_ms": {
+        "p50": 105.21,
+        "p95": 139.47,
+        "max": 168.56,
+        "samples": 176
+      },
+      "fresh_stereo_measurements": {
+        "frames_with_two_valid_ranges": 0,
+        "frames_per_second_with_two_valid_ranges": 0.0,
+        "valid_range_count_histogram": {
+          "1": 176
+        },
+        "two_range_update_gap_ms": {
+          "p95": null,
+          "max": null
+        },
+        "range_by_track_m": {
+          "2": {
+            "samples": 176,
+            "median": 1.7811,
+            "mad": 0.0
+          }
+        }
+      },
+      "sampled_latest_stage_latency_ms_p50_p95": {
+        "inference_latency_ms": {
+          "p50": 69.29,
+          "p95": 101.37
+        },
+        "detector_total_ms": {
+          "p50": 53.19,
+          "p95": 73.11
+        },
+        "stereo_map_ms": {
+          "p50": 29.75,
+          "p95": 49.13
+        },
+        "stereo_rectify_ms": {
+          "p50": 13.49,
+          "p95": 28.5
+        },
+        "stereo_match_ms": {
+          "p50": 7.72,
+          "p95": 20.26
+        },
+        "stereo_extract_ms": {
+          "p50": 7.82,
+          "p95": 16.65
+        },
+        "stereo_flow_box_build_ms": {
+          "p50": 0.05,
+          "p95": 0.1
+        },
+        "stereo_flow_tracker_ms": {
+          "p50": 26.58,
+          "p95": 44.96
+        }
+      },
+      "tracks_and_depth": {
+        "tracked_instances_last_sample": 3,
+        "fresh_stereo_ranges_last_sample": 1
+      },
+      "pipeline": {
+        "detector": "rebuilt_fuel_yolo26n_1280x960-tensorrt",
+        "precision": "FP16",
+        "input_resolution": "3200x1200",
+        "inference_resolution": "1280x960",
+        "tracking_resolution": "640x480",
+        "stereo_backend": "opencv",
+        "stereo_calibrated": true,
+        "stereo_approximate": true,
+        "stereo_match_scale": 0.25,
+        "stereo_num_disparities": 32,
+        "nt_enabled": true,
+        "nt_status": "degraded",
+        "error": null
+      }
+    }
+  ],
+  "limitations": [
+    "Replay is unpaced, so the rate measures maximum processing throughput without media timestamp waits; it is not a claim of real-time capture cadence.",
+    "The pipeline uses leaky latest-frame queues as it does for live input; capture can exceed inference/flow rates and counters show delivered rates.",
+    "One live USB source is fanned out to both pipelines; this tests duplicated processing load, not two independent cameras, distinct scenes, or the aggregate bandwidth of two USB devices.",
+    "Preview encoding and WebRTC transport are disabled; NT4 publishing is local to this benchmark process.",
+    "Synthetic input disparity and object placement do not provide metric stereo ground truth."
+  ]
+}
